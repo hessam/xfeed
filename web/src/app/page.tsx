@@ -9,8 +9,8 @@ import { TelemetryOverlay } from "../components/telemetry-overlay";
 
 type FeedItem = { source: string; text: string; time: string };
 
-const AUTH_BASE = process.env.NEXT_PUBLIC_AUTH_BASE_URL ?? "https://auth.example.com";
-const DOMAIN = process.env.NEXT_PUBLIC_DEFAULT_DOMAIN ?? "t.example.com";
+const AUTH_BASE = (process.env.NEXT_PUBLIC_AUTH_BASE_URL ?? "https://auth.example.com").trim();
+const DOMAIN = (process.env.NEXT_PUBLIC_DEFAULT_DOMAIN ?? "t.example.com").trim();
 
 function hasRTL(text: string): boolean {
   return /[\u0590-\u08FF]/.test(text);

@@ -22,10 +22,15 @@ const RESOLVERS: Record<ResolverName, (name: string) => string> = {
 };
 const LOCAL_BRIDGE = process.env.NEXT_PUBLIC_DNS_BRIDGE_URL;
 
+function cleanName(input: string): string {
+  return input.trim().replace(/\s+/g, "");
+}
+
 type DoHAnswer = { data?: string };
 type DoHResponse = { Status?: number; Answer?: DoHAnswer[] };
 
 export async function probeResolvers(domain: string): Promise<DNSProbeResult[]> {
+  domain = cleanName(domain);
   if (LOCAL_BRIDGE) {
     const start = performance.now();
     try {
@@ -52,6 +57,7 @@ export async function fetchMultipartCiphertext(
   domain: string,
   preferred: ResolverName
 ): Promise<DNSFetchResult> {
+  domain = cleanName(domain);
   const qname = `p1.msg.${domain}`;
   const t3Start = performance.now();
   let dnsQueryCount = 0;
@@ -87,6 +93,7 @@ export async function fetchMultipartCiphertext(
 }
 
 async function fetchTXT(resolver: ResolverName, qname: string): Promise<string> {
+  qname = cleanName(qname);
   if (LOCAL_BRIDGE) {
     return fetchTXTViaBridge(qname);
   }
