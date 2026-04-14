@@ -27,6 +27,7 @@ func main() {
 
 	tokenHMACSecret := os.Getenv("TOKEN_HMAC_SECRET")
 	thefeedMasterKey := os.Getenv("THEFEED_MASTER_KEY")
+	adminSecret := os.Getenv("AUTH_ADMIN_SECRET")
 	if tokenHMACSecret == "" || thefeedMasterKey == "" {
 		log.Fatal("TOKEN_HMAC_SECRET and THEFEED_MASTER_KEY are required")
 	}
@@ -40,7 +41,7 @@ func main() {
 	}
 	defer store.Close()
 
-	svc := auth.NewService(store, []byte(tokenHMACSecret), thefeedMasterKey, true, *rateLimitRPS)
+	svc := auth.NewService(store, []byte(tokenHMACSecret), thefeedMasterKey, adminSecret, true, *rateLimitRPS)
 	server := &http.Server{
 		Addr:              *listen,
 		Handler:           svc.Handler(),

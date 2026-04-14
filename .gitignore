@@ -9,3 +9,4 @@ web/.next/
 server/authd
 server/thefeed
 server/slipgate
+.vercel

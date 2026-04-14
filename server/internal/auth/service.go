@@ -34,6 +34,16 @@ type tokenResponse struct {
 	KeyHint       string `json:"key_hint"`
 }
 
+type adminCreateTokenRequest struct {
+	TTLDays int    `json:"ttl_days"`
+	Meta    string `json:"meta"`
+}
+
+type adminCreateTokenResponse struct {
+	InviteToken string `json:"invite_token"`
+	ExpiresAt   string `json:"expires_at"`
+}
+
 type limiterEntry struct {
 	count     int
 	windowEnd time.Time
@@ -72,15 +82,17 @@ type Service struct {
 	store          *tokenstore.Store
 	tokenHMACKey   []byte
 	thefeedKey     string
+	adminSecret    string
 	consumeOnIssue bool
 	limiter        *RateLimiter
 }
 
-func NewService(store *tokenstore.Store, tokenHMACKey []byte, thefeedKey string, consumeOnIssue bool, rps int) *Service {
+func NewService(store *tokenstore.Store, tokenHMACKey []byte, thefeedKey, adminSecret string, consumeOnIssue bool, rps int) *Service {
 	return &Service{
 		store:          store,
 		tokenHMACKey:   tokenHMACKey,
 		thefeedKey:     thefeedKey,
+		adminSecret:    adminSecret,
 		consumeOnIssue: consumeOnIssue,
 		limiter:        NewRateLimiter(rps),
 	}
@@ -93,6 +105,7 @@ func (s *Service) Handler() http.Handler {
 		_, _ = w.Write([]byte("ok"))
 	})
 	mux.HandleFunc("/v1/token/exchange", s.exchangeToken)
+	mux.HandleFunc("/admin/tokens/create", s.createToken)
 	return mux
 }
 
@@ -153,6 +166,46 @@ func (s *Service) exchangeToken(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (s *Service) createToken(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.adminSecret == "" || r.Header.Get("X-Admin-Secret") != s.adminSecret {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	var req adminCreateTokenRequest
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	ttlDays := req.TTLDays
+	if ttlDays <= 0 {
+		ttlDays = 30
+	}
+	if req.Meta == "" {
+		req.Meta = "admin-issued"
+	}
+
+	tokenRaw := make([]byte, 24)
+	_, _ = rand.Read(tokenRaw)
+	token := base64.RawURLEncoding.EncodeToString(tokenRaw)
+	tokenHash := hmac.New(sha256.New, s.tokenHMACKey)
+	tokenHash.Write([]byte(token))
+
+	now := time.Now().UTC()
+	expires := now.Add(time.Duration(ttlDays) * 24 * time.Hour)
+	if err := s.store.Insert(r.Context(), tokenHash.Sum(nil), now.Unix(), expires.Unix(), req.Meta); err != nil {
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(adminCreateTokenResponse{
+		InviteToken: token,
+		ExpiresAt:   expires.Format(time.RFC3339),
+	})
 }
 
 func issueSessionEnvelope(inviteToken, masterKey string) (string, string, string, error) {

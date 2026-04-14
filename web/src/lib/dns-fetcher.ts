@@ -98,7 +98,7 @@ async function fetchTXT(resolver: ResolverName, qname: string): Promise<string> 
     return fetchTXTViaBridge(qname);
   }
   const res = await fetch(RESOLVERS[resolver](qname), {
-    headers: { accept: "application/dns-json, application/json" },
+    headers: { accept: "application/dns-json" },
   });
   if (!res.ok) throw new Error(`resolver ${resolver} failed`);
   const body = (await res.json()) as DoHResponse;
