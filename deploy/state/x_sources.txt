@@ -1,0 +1,3 @@
+# Nitter RSS sources (fallback for X feeds)
+https://nitter.net/naval/rss
+https://nitter.net/elonmusk/rss

@@ -1,0 +1,19 @@
+services:
+  thefeed:
+    ports:
+      - "127.0.0.1:5300:5300/udp"
+    command:
+      - "--listen=:5300"
+      - "--mode=no-telegram"
+      - "--domain=${THEFEED_DOMAIN}"
+      - "--compression=deflate"
+      - "--padding-min=${DNS_PADDING_MIN}"
+      - "--padding-max=${DNS_PADDING_MAX}"
+      - "--max-dns-response-bytes=512"
+      - "--stress-multipart-parts=3"
+      - "--stress-fill-bytes=3000"
+      - "--disable-persistent-logs=true"
+
+  authd:
+    volumes:
+      - ./state:/var/lib/thefeed

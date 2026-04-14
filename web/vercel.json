@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "framework": "nextjs",
+  "buildCommand": "npm run build",
+  "outputDirectory": ".next",
+  "env": {
+    "NEXT_PUBLIC_DEFAULT_DOMAIN": "@next_public_default_domain",
+    "NEXT_PUBLIC_AUTH_BASE_URL": "@next_public_auth_base_url"
+  }
+}

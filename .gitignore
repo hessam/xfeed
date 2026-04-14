@@ -1,0 +1,8 @@
+deploy/.env
+deploy/state/tokens.db
+deploy/tls/fullchain.pem
+deploy/tls/privkey.pem
+node_modules/
+web/node_modules/
+web/.next/
+.DS_Store

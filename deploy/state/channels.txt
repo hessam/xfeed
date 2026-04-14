@@ -1,0 +1,4 @@
+# Telegram public channels (without @ optional)
+telegram
+durov
+SharghDaily
