@@ -101,10 +101,19 @@ func NewService(store *tokenstore.Store, tokenHMACKey []byte, thefeedKey, adminS
 func (s *Service) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	mux.HandleFunc("/v1/token/exchange", s.exchangeToken)
+	mux.HandleFunc("/v1/token/exchange", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == http.MethodOptions {
+			return
+		}
+		s.exchangeToken(w, r)
+	})
 	mux.HandleFunc("/admin/tokens/create", s.createToken)
 	return mux
 }
