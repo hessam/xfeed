@@ -14,15 +14,13 @@ export type DNSFetchResult = {
   dnsQueryCount: number;
 };
 
-const AUTH_BASE = (process.env.NEXT_PUBLIC_AUTH_BASE_URL ?? "https://auth.xtory.sbs").trim();
-
 const RESOLVERS: Record<ResolverName, (name: string) => string> = {
   cloudflare: (name) =>
     `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=TXT`,
   google: (name) =>
     `https://dns.google/resolve?name=${encodeURIComponent(name)}&type=TXT`,
   direct: (name) =>
-    `${AUTH_BASE}/dns-query?name=${encodeURIComponent(name)}`,
+    `/api/dns-query?name=${encodeURIComponent(name)}`,
 };
 const LOCAL_BRIDGE = process.env.NEXT_PUBLIC_DNS_BRIDGE_URL;
 

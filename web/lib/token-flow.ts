@@ -20,7 +20,7 @@ export async function exchangeAndUnwrapToken(
   inviteToken: string
 ): Promise<{ sessionKey: string; expiresAt: string; metrics: ColdStartMetrics }> {
   const t1Start = performance.now();
-  const res = await fetch(`${authBaseUrl}/v1/token/exchange`, {
+  const res = await fetch(`/api/auth/exchange`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ invite_token: inviteToken }),
