@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { readEncryptedFeedCache, writeEncryptedFeedCache } from "../../lib/cache";
 import { probeResolvers, fetchMultipartCiphertext, type ResolverName } from "../lib/dns-fetcher";
 import { decryptFeedCiphertext } from "../lib/feed-crypto";
@@ -32,7 +32,8 @@ export default function HomePage() {
     dnsQueries?: number;
   }>({});
 
-  const cached = useMemo(() => readEncryptedFeedCache(), []);
+  const [cached, setCached] = useState<ReturnType<typeof readEncryptedFeedCache>>(null);
+  useEffect(() => { setCached(readEncryptedFeedCache()); }, []);
 
   async function handleTokenSubmit() {
     setLoading(true);

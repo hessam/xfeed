@@ -47,6 +47,7 @@ services:
       - "5300/udp"
     networks:
       - feed_net
+      - public_net
     read_only: true
     tmpfs:
       - /tmp
