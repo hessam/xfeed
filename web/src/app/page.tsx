@@ -105,12 +105,44 @@ const RefreshIcon = () => (
   </svg>
 );
 
+// Skeleton component
+function SkeletonCard({ index }: { index: number }) {
+  return (
+    <div className="post-card skeleton-card" style={{ animationDelay: `${index * 60}ms` }}>
+      <div className="post-header">
+        <div className="skeleton-pill" style={{ width: 72, height: 22 }} />
+        <div className="skeleton-pill" style={{ width: 100, height: 16 }} />
+        <div className="skeleton-pill" style={{ width: 50, height: 14, marginLeft: "auto" }} />
+      </div>
+      <div className="skeleton-lines">
+        <div className="skeleton-line" style={{ width: "100%" }} />
+        <div className="skeleton-line" style={{ width: "85%" }} />
+        <div className="skeleton-line" style={{ width: "60%" }} />
+      </div>
+    </div>
+  );
+}
+
+function FeedSkeleton() {
+  return (
+    <div className="feed-list">
+      <div className="feed-date-group">
+        <div className="skeleton-pill" style={{ width: 60, height: 14, marginBottom: 12 }} />
+        {Array.from({ length: 6 }).map((_, i) => (
+          <SkeletonCard key={i} index={i} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function HomePage() {
   const [token, setToken] = useState("");
   const [sessionKey, setSessionKey] = useState<string | null>(null);
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<FilterType>("all");
   const [telemetry, setTelemetry] = useState<{
@@ -170,7 +202,10 @@ export default function HomePage() {
     try {
       const probeTask = probeResolvers(DOMAIN);
       const auth = await exchangeAndUnwrapToken(AUTH_BASE, token.trim());
+
+      // Auth succeeded — show feed view with loading skeleton
       setSessionKey(auth.sessionKey);
+      setInitialLoading(true);
 
       const probe = await probeTask;
       const fastest: ResolverName =
@@ -187,9 +222,15 @@ export default function HomePage() {
         dnsQueries: result.dns.dnsQueryCount,
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "unexpected error");
+      const msg = e instanceof Error ? e.message : "unexpected error";
+      setError(msg);
+      // If auth failed, revert to login
+      if (msg.includes("token exchange failed") || msg.includes("unauthorized")) {
+        setSessionKey(null);
+      }
     } finally {
       setLoading(false);
+      setInitialLoading(false);
     }
   }
 
@@ -219,6 +260,7 @@ export default function HomePage() {
     if (!sessionKey) return;
     const interval = setInterval(handleRefresh, 120_000);
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionKey]);
 
   // Login view
@@ -280,50 +322,54 @@ export default function HomePage() {
       </header>
 
       {/* Stats */}
-      <div className="stats-bar">
-        <div className="stat-item">
-          <span className="stat-dot" />
-          <span>Live</span>
+      {!initialLoading && (
+        <div className="stats-bar">
+          <div className="stat-item">
+            <span className="stat-dot" />
+            <span>Live</span>
+          </div>
+          <span>·</span>
+          <span>{feed.length} posts from {new Set(feed.map(f => f.source)).size} sources</span>
+          <span style={{ marginLeft: "auto" }}>
+            {telemetry.t3 ? `${telemetry.t3}ms DNS` : ""}
+          </span>
         </div>
-        <span>·</span>
-        <span>{feed.length} posts from {new Set(feed.map(f => f.source)).size} sources</span>
-        <span style={{ marginLeft: "auto" }}>
-          {telemetry.t3 ? `${telemetry.t3}ms DNS` : ""}
-        </span>
-      </div>
+      )}
 
       {/* Filter chips */}
-      <div className="filter-bar">
-        <button
-          className={`filter-chip ${filter === "all" ? "active" : ""}`}
-          onClick={() => setFilter("all")}
-        >
-          All <span className="chip-count">{counts.all}</span>
-        </button>
-        <button
-          className={`filter-chip ${filter === "x" ? "active" : ""}`}
-          onClick={() => setFilter("x")}
-        >
-          <span className="chip-dot" style={{ background: "var(--x-color)" }} />
-          X / Twitter <span className="chip-count">{counts.x}</span>
-        </button>
-        <button
-          className={`filter-chip ${filter === "tg" ? "active" : ""}`}
-          onClick={() => setFilter("tg")}
-        >
-          <span className="chip-dot" style={{ background: "var(--tg-color)" }} />
-          Telegram <span className="chip-count">{counts.tg}</span>
-        </button>
-        {counts.rss > 0 && (
+      {!initialLoading && feed.length > 0 && (
+        <div className="filter-bar">
           <button
-            className={`filter-chip ${filter === "rss" ? "active" : ""}`}
-            onClick={() => setFilter("rss")}
+            className={`filter-chip ${filter === "all" ? "active" : ""}`}
+            onClick={() => setFilter("all")}
           >
-            <span className="chip-dot" style={{ background: "var(--rss-color)" }} />
-            RSS <span className="chip-count">{counts.rss}</span>
+            All <span className="chip-count">{counts.all}</span>
           </button>
-        )}
-      </div>
+          <button
+            className={`filter-chip ${filter === "x" ? "active" : ""}`}
+            onClick={() => setFilter("x")}
+          >
+            <span className="chip-dot" style={{ background: "var(--x-color)" }} />
+            X / Twitter <span className="chip-count">{counts.x}</span>
+          </button>
+          <button
+            className={`filter-chip ${filter === "tg" ? "active" : ""}`}
+            onClick={() => setFilter("tg")}
+          >
+            <span className="chip-dot" style={{ background: "var(--tg-color)" }} />
+            Telegram <span className="chip-count">{counts.tg}</span>
+          </button>
+          {counts.rss > 0 && (
+            <button
+              className={`filter-chip ${filter === "rss" ? "active" : ""}`}
+              onClick={() => setFilter("rss")}
+            >
+              <span className="chip-dot" style={{ background: "var(--rss-color)" }} />
+              RSS <span className="chip-count">{counts.rss}</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {error && (
         <div style={{ maxWidth: 720, margin: "12px auto", padding: "0 24px" }}>
@@ -331,47 +377,68 @@ export default function HomePage() {
         </div>
       )}
 
+      {/* Loading skeleton */}
+      {initialLoading && <FeedSkeleton />}
+
       {/* Feed */}
-      <div className="feed-list">
-        {filteredFeed.length === 0 && !loading ? (
-          <div className="empty-state">
-            <div className="empty-state-icon">📡</div>
-            <div className="empty-state-title">No posts match this filter</div>
-            <div className="empty-state-sub">Try selecting a different source</div>
-          </div>
-        ) : (
-          dateGroups.map(group => (
-            <div key={group.label} className="feed-date-group">
-              <div className="feed-date-label">{group.label}</div>
-              {group.items.map((item, i) => {
-                const type = getSourceType(item.source);
-                const isRtl = hasRTL(item.text);
-                return (
-                  <article
-                    key={`${item.source}-${item.time}-${i}`}
-                    className="post-card"
-                    style={{ animationDelay: `${i * 30}ms` }}
-                  >
-                    <div className="post-header">
-                      <span className={`source-badge ${type}-badge`}>
-                        {type === "x" && <XIcon />}
-                        {type === "tg" && <TelegramIcon />}
-                        {type === "rss" && <RssIcon />}
-                        {type === "x" ? "X" : type === "tg" ? "Telegram" : "RSS"}
-                      </span>
-                      <span className="source-handle">{getSourceHandle(item.source)}</span>
-                      <span className="post-time">{formatTimeAgo(item.time)}</span>
-                    </div>
-                    <div className={`post-body ${isRtl ? "rtl" : "ltr"}`}>
-                      {item.text}
-                    </div>
-                  </article>
-                );
-              })}
+      {!initialLoading && (
+        <div className="feed-list">
+          {filteredFeed.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-state-icon">📡</div>
+              <div className="empty-state-title">
+                {feed.length === 0 ? "Feed is loading..." : "No posts match this filter"}
+              </div>
+              <div className="empty-state-sub">
+                {feed.length === 0
+                  ? "The server may still be fetching posts. Try refreshing."
+                  : "Try selecting a different source"}
+              </div>
+              {feed.length === 0 && (
+                <button
+                  className="btn-primary"
+                  style={{ marginTop: 16, width: "auto", padding: "10px 24px" }}
+                  onClick={handleRefresh}
+                  disabled={refreshing}
+                >
+                  {refreshing ? "Refreshing..." : "Retry"}
+                </button>
+              )}
             </div>
-          ))
-        )}
-      </div>
+          ) : (
+            dateGroups.map(group => (
+              <div key={group.label} className="feed-date-group">
+                <div className="feed-date-label">{group.label}</div>
+                {group.items.map((item, i) => {
+                  const type = getSourceType(item.source);
+                  const isRtl = hasRTL(item.text);
+                  return (
+                    <article
+                      key={`${item.source}-${item.time}-${i}`}
+                      className="post-card"
+                      style={{ animationDelay: `${i * 30}ms` }}
+                    >
+                      <div className="post-header">
+                        <span className={`source-badge ${type}-badge`}>
+                          {type === "x" && <XIcon />}
+                          {type === "tg" && <TelegramIcon />}
+                          {type === "rss" && <RssIcon />}
+                          {type === "x" ? "X" : type === "tg" ? "Telegram" : "RSS"}
+                        </span>
+                        <span className="source-handle">{getSourceHandle(item.source)}</span>
+                        <span className="post-time">{formatTimeAgo(item.time)}</span>
+                      </div>
+                      <div className={`post-body ${isRtl ? "rtl" : "ltr"}`}>
+                        {item.text}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            ))
+          )}
+        </div>
+      )}
 
       {/* Telemetry */}
       {telemetry.t1 != null && (
