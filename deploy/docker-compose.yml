@@ -1,61 +1,35 @@
 services:
   slipgate:
     build:
-      context: anon-slipgate
-    container_name: thefeed-slipgate
-    restart: unless-stopped
-    environment:
-      - THEFEED_DOMAIN=${THEFEED_DOMAIN}
-    volumes:
-      - slipgate_keys:/keys
-    ports:
-      - "${SLIPGATE_BIND_IP:-0.0.0.0}:${SLIPGATE_HOST_PORT:-53}:53/udp"
-    depends_on:
-      - thefeed
-    networks:
-      - public_net
-      - feed_net
-    read_only: true
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - NET_BIND_SERVICE
-
-  thefeed:
-    build:
       context: ..
-      dockerfile: deploy/thefeed/Dockerfile
-    container_name: thefeed-server
+      dockerfile: deploy/master-slipgate/Dockerfile
+    container_name: thefeed-master
     restart: unless-stopped
     user: root
     env_file:
       - .env
+    environment:
+      - THEFEED_DOMAIN=${THEFEED_DOMAIN}
+      - THEFEED_MASTER_KEY=${THEFEED_MASTER_KEY}
+      - TELEGRAM_API_ID=${TELEGRAM_API_ID}
+      - TELEGRAM_API_HASH=${TELEGRAM_API_HASH}
+      - DB_PATH=/var/lib/thefeed/feed.db
+      - CHANNELS_FILE=/app/state/channels.txt
+      - X_RSS_FILE=/app/state/x_sources.txt
+      - DB_FILE=/var/lib/thefeed/feed.db
+      - DNS_PADDING_MIN=${DNS_PADDING_MIN}
+      - DNS_PADDING_MAX=${DNS_PADDING_MAX}
+    ports:
+      - "${SLIPGATE_BIND_IP:-0.0.0.0}:${SLIPGATE_HOST_PORT:-53}:53/udp"
     volumes:
-      - ./state:/var/lib/thefeed:ro
-      - feeddb_data:/feeddb
-    command:
-      - "--listen=:5300"
-      - "--mode=no-telegram"
-      - "--domain=${THEFEED_DOMAIN}"
-      - "--compression=deflate"
-      - "--padding-min=${DNS_PADDING_MIN}"
-      - "--padding-max=${DNS_PADDING_MAX}"
-      - "--max-dns-response-bytes=512"
-      - "--disable-persistent-logs=true"
-      - "--db=/feeddb/feed.db"
-    expose:
-      - "5300/udp"
+      - ./state:/app/state:ro
+      - feeddb_data:/var/lib/thefeed
+      - slipgate_keys:/etc/slipgate/keys
     networks:
-      - feed_net
       - public_net
-    tmpfs:
-      - /tmp
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
+      - feed_net
+    depends_on:
+      - rsshub
 
   authd:
     build:

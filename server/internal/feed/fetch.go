@@ -237,6 +237,13 @@ func parseRSSDate(date string) string {
 // --- helpers ---
 
 func urlToSourceLabel(u string) string {
+	if strings.Contains(strings.ToLower(u), "config") {
+		parts := strings.Split(u, "/")
+		if len(parts) > 1 {
+			return "cfg:" + parts[len(parts)-1]
+		}
+		return "cfg:other"
+	}
 	if strings.Contains(u, "/twitter/user/") {
 		parts := strings.Split(u, "/twitter/user/")
 		if len(parts) > 1 {
@@ -249,7 +256,7 @@ func urlToSourceLabel(u string) string {
 			return "tg:" + parts[1]
 		}
 	}
-	return "rss"
+	return "other"
 }
 
 func readList(path string) ([]string, error) {

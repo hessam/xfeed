@@ -7,7 +7,7 @@ import { decryptFeedCiphertext } from "../lib/feed-crypto";
 import { exchangeAndUnwrapToken } from "../../lib/token-flow";
 
 type FeedItem = { source: string; text: string; time: string };
-type FilterType = "all" | "x" | "tg" | "rss";
+type FilterType = "all" | "x" | "tg" | "rss" | "cfg";
 
 const AUTH_BASE = (process.env.NEXT_PUBLIC_AUTH_BASE_URL ?? "https://auth.example.com").trim();
 const DOMAIN = (process.env.NEXT_PUBLIC_DEFAULT_DOMAIN ?? "t.example.com").trim();
@@ -16,13 +16,15 @@ function hasRTL(text: string): boolean {
   return /[\u0590-\u08FF]/.test(text);
 }
 
-function getSourceType(source: string): "x" | "tg" | "rss" {
+function getSourceType(source: string): "x" | "tg" | "rss" | "cfg" {
+  if (source.startsWith("cfg:")) return "cfg";
   if (source.startsWith("x:")) return "x";
   if (source.startsWith("tg:")) return "tg";
   return "rss";
 }
 
 function getSourceHandle(source: string): string {
+  if (source.startsWith("cfg:")) return source.slice(4);
   if (source.startsWith("x:")) return "@" + source.slice(2);
   if (source.startsWith("tg:")) return source.slice(3);
   return source;
@@ -98,6 +100,12 @@ const RssIcon = () => (
   </svg>
 );
 
+const ConfigIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+  </svg>
+);
+
 const RefreshIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <polyline points="23 4 23 10 17 10"/>
@@ -166,16 +174,17 @@ export default function HomePage() {
 
   // Filter feed
   const filteredFeed = useMemo(() => {
-    if (filter === "all") return sortedFeed;
+    if (filter === "all") return sortedFeed.filter(item => getSourceType(item.source) !== "cfg");
     return sortedFeed.filter(item => getSourceType(item.source) === filter);
   }, [sortedFeed, filter]);
 
   // Count by source
   const counts = useMemo(() => {
-    const c = { all: feed.length, x: 0, tg: 0, rss: 0 };
+    const c = { all: 0, x: 0, tg: 0, rss: 0, cfg: 0 };
     for (const item of feed) {
       const t = getSourceType(item.source);
       c[t]++;
+      if (t !== "cfg") c.all++;
     }
     return c;
   }, [feed]);
@@ -368,6 +377,15 @@ export default function HomePage() {
               RSS <span className="chip-count">{counts.rss}</span>
             </button>
           )}
+          {counts.cfg > 0 && (
+            <button
+              className={`filter-chip ${filter === "cfg" ? "active" : ""}`}
+              onClick={() => setFilter("cfg")}
+            >
+              <span className="chip-dot" style={{ background: "var(--secondary-color)" }} />
+              Configs <span className="chip-count">{counts.cfg}</span>
+            </button>
+          )}
         </div>
       )}
 
@@ -423,7 +441,8 @@ export default function HomePage() {
                           {type === "x" && <XIcon />}
                           {type === "tg" && <TelegramIcon />}
                           {type === "rss" && <RssIcon />}
-                          {type === "x" ? "X" : type === "tg" ? "Telegram" : "RSS"}
+                          {type === "cfg" && <ConfigIcon />}
+                          {type === "x" ? "X" : type === "tg" ? "Telegram" : type === "cfg" ? "Config" : "RSS"}
                         </span>
                         <span className="source-handle">{getSourceHandle(item.source)}</span>
                         <span className="post-time">{formatTimeAgo(item.time)}</span>
