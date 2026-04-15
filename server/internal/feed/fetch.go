@@ -3,15 +3,17 @@ package feed
 import (
 	"context"
 	"encoding/xml"
-	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
+
+	"xfeed/server/internal/store"
 )
 
 type Item struct {
@@ -24,12 +26,11 @@ type Service struct {
 	client      *http.Client
 	channels    []string
 	nitterFeeds []string
-
-	mu    sync.RWMutex
-	cache []Item
+	st          *store.Store
 }
 
-func NewService(channelsFile, nitterFile string) (*Service, error) {
+// NewService creates the feed service backed by a SQLite store at dbPath.
+func NewService(channelsFile, nitterFile, dbPath string) (*Service, error) {
 	channels, err := readList(channelsFile)
 	if err != nil {
 		return nil, err
@@ -38,14 +39,17 @@ func NewService(channelsFile, nitterFile string) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
+	st, err := store.Open(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("store: %w", err)
+	}
 	s := &Service{
-		client:      &http.Client{Timeout: 6 * time.Second},
+		client:      &http.Client{Timeout: 10 * time.Second},
 		channels:    channels,
 		nitterFeeds: nitter,
+		st:          st,
 	}
-	// Populate cache immediately at startup.
 	s.refreshCache()
-	// Background refresh every 60 seconds.
 	go func() {
 		ticker := time.NewTicker(60 * time.Second)
 		defer ticker.Stop()
@@ -57,61 +61,87 @@ func NewService(channelsFile, nitterFile string) (*Service, error) {
 }
 
 func (s *Service) refreshCache() {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	items := s.fetchAll(ctx, 6)
-	if len(items) > 0 {
-		s.mu.Lock()
-		s.cache = items
-		s.mu.Unlock()
+
+	all := append(s.channels, s.nitterFeeds...)
+	sem := make(chan struct{}, 10) // max 10 concurrent fetches
+	var wg sync.WaitGroup
+
+	for _, src := range all {
+		src := src
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			s.ingestSource(ctx, src)
+		}()
 	}
+	wg.Wait()
 }
 
-func (s *Service) Latest(_ context.Context, limit int) ([]Item, error) {
-	if limit < 1 {
-		limit = 6
-	}
-	s.mu.RLock()
-	cached := s.cache
-	s.mu.RUnlock()
-	if len(cached) == 0 {
-		return nil, errors.New("no feed items available")
-	}
-	if len(cached) > limit {
-		cached = cached[:limit]
-	}
-	return cached, nil
-}
+func (s *Service) ingestSource(ctx context.Context, src string) {
+	cursor := s.st.GetCursor(src)
 
-func (s *Service) fetchAll(ctx context.Context, limit int) []Item {
-	out := make([]Item, 0, limit)
-	for _, ch := range s.channels {
-		if len(out) >= limit {
-			break
+	var posts []store.Post
+	var newest string
+
+	if strings.HasPrefix(src, "@") || (!strings.Contains(src, "/") && !strings.HasPrefix(src, "http")) {
+		// Telegram scrape (legacy, currently channels.txt is empty)
+		item, err := s.fetchTelegram(ctx, src)
+		if err == nil && item.Text != "" && item.Time > cursor {
+			posts = []store.Post{{Source: item.Source, Text: item.Text, PubDate: item.Time}}
+			newest = item.Time
 		}
-		item, err := s.fetchTelegram(ctx, ch)
-		if err == nil && item.Text != "" {
-			out = append(out, item)
+	} else {
+		// RSS/RSSHub
+		items, err := s.fetchRSS(ctx, src)
+		if err != nil {
+			return
 		}
-	}
-	for _, rss := range s.nitterFeeds {
-		if len(out) >= limit {
-			break
-		}
-		items, err := s.fetchRSS(ctx, rss)
-		if err == nil {
-			for _, item := range items {
-				if len(out) >= limit {
-					break
-				}
-				if item.Text != "" {
-					out = append(out, item)
+		for _, it := range items {
+			if cursor == "" || it.Time > cursor {
+				posts = append(posts, store.Post{Source: it.Source, Text: it.Text, PubDate: it.Time})
+				if it.Time > newest {
+					newest = it.Time
 				}
 			}
 		}
 	}
-	return out
+
+	if len(posts) == 0 {
+		return
+	}
+	n, err := s.st.InsertBatch(posts)
+	if err != nil {
+		return
+	}
+	if newest > cursor {
+		_ = s.st.SetCursor(src, newest)
+	}
+	log.Printf("Ingested %d new posts from %s", n, src)
 }
+
+func (s *Service) Latest(_ context.Context, limit int) ([]Item, error) {
+	if limit < 1 {
+		limit = 30
+	}
+	posts, err := s.st.Latest(limit)
+	if err != nil {
+		return nil, err
+	}
+	if len(posts) == 0 {
+		return nil, fmt.Errorf("no feed items available")
+	}
+	items := make([]Item, len(posts))
+	for i, p := range posts {
+		items[i] = Item{Source: p.Source, Text: p.Text, Time: p.PubDate}
+	}
+	return items, nil
+}
+
+// --- fetchers ---
 
 func (s *Service) fetchTelegram(ctx context.Context, channel string) (Item, error) {
 	url := fmt.Sprintf("https://t.me/s/%s", strings.TrimPrefix(channel, "@"))
@@ -128,7 +158,7 @@ func (s *Service) fetchTelegram(ctx context.Context, channel string) (Item, erro
 	text := firstMatch(string(body), `tgme_widget_message_text[^>]*>(?s:(.*?))</div>`)
 	text = stripTags(text)
 	if text == "" {
-		return Item{}, errors.New("telegram message not found")
+		return Item{}, fmt.Errorf("telegram message not found")
 	}
 	return Item{
 		Source: "telegram:" + channel,
@@ -162,14 +192,10 @@ func (s *Service) fetchRSS(ctx context.Context, url string) ([]Item, error) {
 		return nil, err
 	}
 	if len(feed.Channel.Items) == 0 {
-		return nil, errors.New("rss empty")
+		return nil, fmt.Errorf("rss empty")
 	}
-
-	var out []Item
-	for i, it := range feed.Channel.Items {
-		if i >= 5 {
-			break // Limit to 5 last posts per source
-		}
+	out := make([]Item, 0, len(feed.Channel.Items))
+	for _, it := range feed.Channel.Items {
 		text := stripTags(it.Description)
 		if text == "" {
 			text = it.Title
@@ -177,11 +203,35 @@ func (s *Service) fetchRSS(ctx context.Context, url string) ([]Item, error) {
 		out = append(out, Item{
 			Source: urlToSourceLabel(url),
 			Text:   text,
-			Time:   it.PubDate,
+			Time:   parseRSSDate(it.PubDate),
 		})
 	}
 	return out, nil
 }
+
+func parseRSSDate(date string) string {
+	date = strings.TrimSpace(date)
+	formats := []string{
+		time.RFC1123Z,
+		time.RFC1123,
+		time.RFC822Z,
+		time.RFC822,
+		time.ANSIC,
+		time.UnixDate,
+		time.RubyDate,
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04:05Z07:00",
+	}
+	for _, f := range formats {
+		t, err := time.Parse(f, date)
+		if err == nil {
+			return t.UTC().Format(time.RFC3339)
+		}
+	}
+	return date
+}
+
+// --- helpers ---
 
 func urlToSourceLabel(u string) string {
 	if strings.Contains(u, "/twitter/user/") {
@@ -228,12 +278,4 @@ func firstMatch(s, pattern string) string {
 func stripTags(s string) string {
 	re := regexp.MustCompile(`<[^>]+>`)
 	return strings.TrimSpace(re.ReplaceAllString(s, " "))
-}
-
-func truncateSpace(s string, max int) string {
-	s = strings.Join(strings.Fields(s), " ")
-	if len(s) <= max {
-		return s
-	}
-	return s[:max]
 }

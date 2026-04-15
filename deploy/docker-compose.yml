@@ -30,10 +30,12 @@ services:
       dockerfile: deploy/thefeed/Dockerfile
     container_name: thefeed-server
     restart: unless-stopped
+    user: root
     env_file:
       - .env
     volumes:
       - ./state:/var/lib/thefeed:ro
+      - feeddb_data:/feeddb
     command:
       - "--listen=:5300"
       - "--mode=no-telegram"
@@ -43,12 +45,12 @@ services:
       - "--padding-max=${DNS_PADDING_MAX}"
       - "--max-dns-response-bytes=512"
       - "--disable-persistent-logs=true"
+      - "--db=/feeddb/feed.db"
     expose:
       - "5300/udp"
     networks:
       - feed_net
       - public_net
-    read_only: true
     tmpfs:
       - /tmp
     security_opt:
@@ -112,3 +114,4 @@ networks:
 
 volumes:
   authd_data:
+  feeddb_data:

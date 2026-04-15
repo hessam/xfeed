@@ -32,6 +32,7 @@ func main() {
 		compression      = flag.String("compression", "deflate", "Compression mode")
 		channelsFile     = flag.String("channels-file", "/var/lib/thefeed/channels.txt", "Telegram channels list")
 		xrssFile         = flag.String("x-rss-file", "/var/lib/thefeed/x_sources.txt", "X RSS source list")
+		dbFile           = flag.String("db", "/var/lib/thefeed/feed.db", "SQLite feed store path")
 		paddingMin       = flag.Int("padding-min", 12, "Minimum random padding bytes")
 		paddingMax       = flag.Int("padding-max", 56, "Maximum random padding bytes")
 		maxResponseBytes = flag.Int("max-dns-response-bytes", 512, "Max DNS response bytes")
@@ -47,7 +48,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("invalid THEFEED_MASTER_KEY: %v", err)
 	}
-	feedService, err := feed.NewService(*channelsFile, *xrssFile)
+	feedService, err := feed.NewService(*channelsFile, *xrssFile, *dbFile)
 	if err != nil {
 		log.Fatalf("feed service init: %v", err)
 	}
