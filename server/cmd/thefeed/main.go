@@ -15,6 +15,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	intcrypto "xfeed/server/internal/crypto"
@@ -51,6 +52,42 @@ func main() {
 		log.Fatalf("feed service init: %v", err)
 	}
 
+	// Pre-compute encrypted chunks and refresh periodically.
+	chunkCache := &chunkCache{}
+	refreshChunks := func() {
+		items, err := feedService.Latest(context.Background(), 6)
+		if err != nil {
+			items = []feed.Item{{
+				Source: "system",
+				Text:   "feed temporarily unavailable",
+				Time:   time.Now().UTC().Format(time.RFC3339),
+			}}
+		}
+		payloadJSON, _ := json.Marshal(items)
+		if *stressFillBytes > 0 {
+			payloadJSON = append(payloadJSON, []byte(strings.Repeat("Z", *stressFillBytes))...)
+		}
+		deflated := deflatePayload(payloadJSON)
+		encrypted, err := encryptAESGCM(masterKey, deflated)
+		if err != nil {
+			return
+		}
+		encoded := base64.RawURLEncoding.EncodeToString(encrypted)
+		chunks := splitFixed(encoded, maxTXTChunkLen)
+		if *stressParts > 1 {
+			chunks = splitForTargetParts(encoded, *stressParts)
+		}
+		chunkCache.set(chunks)
+	}
+	refreshChunks()
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			refreshChunks()
+		}
+	}()
+
 	conn, err := net.ListenPacket("udp", *listen)
 	if err != nil {
 		log.Fatalf("listen: %v", err)
@@ -67,13 +104,10 @@ func main() {
 		resp, ok := buildTXTResponse(
 			buf[:n],
 			*domain,
-			masterKey,
-			feedService,
+			chunkCache,
 			*paddingMin,
 			*paddingMax,
 			*maxResponseBytes,
-			*stressParts,
-			*stressFillBytes,
 		)
 		if !ok {
 			continue
@@ -82,16 +116,30 @@ func main() {
 	}
 }
 
+type chunkCache struct {
+	mu     sync.RWMutex
+	chunks []string
+}
+
+func (c *chunkCache) set(chunks []string) {
+	c.mu.Lock()
+	c.chunks = chunks
+	c.mu.Unlock()
+}
+
+func (c *chunkCache) get() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.chunks
+}
+
 func buildTXTResponse(
 	query []byte,
 	domain string,
-	masterKey []byte,
-	feedService *feed.Service,
+	cache *chunkCache,
 	padMin,
 	padMax,
-	maxBytes,
-	forceParts,
-	stressFillBytes int,
+	maxBytes int,
 ) ([]byte, bool) {
 	if len(query) < 12 {
 		return nil, false
@@ -120,27 +168,9 @@ func buildTXTResponse(
 	}
 	partIndex := parsePartIndex(normalized, domain)
 
-	items, err := feedService.Latest(context.Background(), 6)
-	if err != nil {
-		items = []feed.Item{{
-			Source: "system",
-			Text:   "feed temporarily unavailable",
-			Time:   time.Now().UTC().Format(time.RFC3339),
-		}}
-	}
-	payloadJSON, _ := json.Marshal(items)
-	if stressFillBytes > 0 {
-		payloadJSON = append(payloadJSON, []byte(strings.Repeat("Z", stressFillBytes))...)
-	}
-	deflated := deflatePayload(payloadJSON)
-	encrypted, err := encryptAESGCM(masterKey, deflated)
-	if err != nil {
+	chunks := cache.get()
+	if len(chunks) == 0 {
 		return nil, false
-	}
-	encoded := base64.RawURLEncoding.EncodeToString(encrypted)
-	chunks := splitFixed(encoded, maxTXTChunkLen)
-	if forceParts > 1 {
-		chunks = splitForTargetParts(encoded, forceParts)
 	}
 	if partIndex < 0 || partIndex >= len(chunks) {
 		return nil, false
