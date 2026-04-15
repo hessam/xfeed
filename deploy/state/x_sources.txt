@@ -6,3 +6,5 @@ http://rsshub:1200/twitter/user/IranIntlbrk
 http://rsshub:1200/twitter/user/PahlaviReza
 http://rsshub:1200/twitter/user/CENTCOMFarsi
 http://rsshub:1200/twitter/user/IranIntl
+http://rsshub:1200/telegram/channel/persian_trend_official
+http://rsshub:1200/telegram/channel/VahidOnline
