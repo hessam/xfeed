@@ -18,8 +18,9 @@ func main() {
 		tlsKey       = flag.String("tls-key", "", "Path to TLS key")
 		dbPath       = flag.String("db", "/var/lib/thefeed/tokens.db", "SQLite token database path")
 		tokenTTLDays = flag.Int("token-ttl-days", 30, "Token TTL in days")
-		rateLimitRPS = flag.Int("rate-limit-rps", 5, "Rate limit requests per second per IP")
-		disableLogs  = flag.Bool("disable-persistent-logs", true, "Disable persistent logs")
+		consumeOnIssue = flag.Bool("consume-on-issue", false, "Consume token on first successful exchange")
+		rateLimitRPS   = flag.Int("rate-limit-rps", 5, "Rate limit requests per second per IP")
+		disableLogs    = flag.Bool("disable-persistent-logs", true, "Disable persistent logs")
 	)
 	flag.Parse()
 	_ = tokenTTLDays
@@ -41,7 +42,7 @@ func main() {
 	}
 	defer store.Close()
 
-	svc := auth.NewService(store, []byte(tokenHMACSecret), thefeedMasterKey, adminSecret, true, *rateLimitRPS)
+	svc := auth.NewService(store, []byte(tokenHMACSecret), thefeedMasterKey, adminSecret, *consumeOnIssue, *rateLimitRPS)
 	server := &http.Server{
 		Addr:              *listen,
 		Handler:           svc.Handler(),
