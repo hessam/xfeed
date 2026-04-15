@@ -1,3 +1,7 @@
-# Nitter RSS sources (fallback for X feeds)
-https://nitter.net/naval/rss
-https://nitter.net/elonmusk/rss
+# RSSHub sources for X and Telegram
+http://rsshub:1200/twitter/user/naval
+http://rsshub:1200/twitter/user/elonmusk
+http://rsshub:1200/telegram/channel/telegram
+http://rsshub:1200/telegram/channel/durov
+http://rsshub:1200/telegram/channel/SharghDaily
+http://rsshub:1200/telegram/channel/persian_trend_official

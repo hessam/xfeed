@@ -1,5 +1,1 @@
-# Telegram public channels (without @ optional)
-telegram
-durov
-SharghDaily
-persian_trend_official
+# Telegram scraper disabled in favor of RSSHub

@@ -88,6 +88,16 @@ services:
     cap_drop:
       - ALL
 
+  rsshub:
+    image: diygod/rsshub
+    container_name: rsshub
+    restart: unless-stopped
+    ports:
+      - "1200:1200"
+    networks:
+      - feed_net
+      - public_net
+
 networks:
   feed_net:
     name: feed_net
