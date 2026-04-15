@@ -212,17 +212,26 @@ export default function HomePage() {
 
   const dateGroups = useMemo(() => groupByDate(filteredFeed), [filteredFeed]);
 
-  const fetchFeed = useCallback(async (key: string, resolver: ResolverName) => {
-    const dns = await fetchMultipartCiphertext(DOMAIN, resolver);
+  const fetchFeed = useCallback(async (key: string, resolver: ResolverName, batchIdx: number = 0) => {
+    const dns = await fetchMultipartCiphertext(DOMAIN, resolver, batchIdx);
     const t4Start = performance.now();
     const jsonText = await decryptFeedCiphertext(dns.ciphertextB64, key);
     const parsed = JSON.parse(jsonText) as FeedItem[];
-    setFeed(parsed);
-    writeEncryptedFeedCache({
-      ciphertextB64: dns.ciphertextB64,
-      createdAt: new Date().toISOString(),
-      domain: DOMAIN,
+    
+    setFeed(prev => {
+      // De-duplicate items by time and source
+      const existing = new Set(prev.map(p => `${p.source}-${p.time}`));
+      const filtered = parsed.filter(p => !existing.has(`${p.source}-${p.time}`));
+      return [...prev, ...filtered];
     });
+
+    if (batchIdx === 0) {
+      writeEncryptedFeedCache({
+        ciphertextB64: dns.ciphertextB64,
+        createdAt: new Date().toISOString(),
+        domain: DOMAIN,
+      });
+    }
     return { dns, t4: Math.round(performance.now() - t4Start) };
   }, []);
 
@@ -241,7 +250,7 @@ export default function HomePage() {
       const fastest: ResolverName =
         probe.filter(p => p.ok).sort((a, b) => a.latencyMs - b.latencyMs)[0]?.resolver ?? "cloudflare";
 
-      const result = await fetchFeed(auth.sessionKey, fastest);
+      const result = await fetchFeed(auth.sessionKey, fastest, 0);
       setTelemetry({
         t1: auth.metrics.t1TokenExchangeMs,
         t2: auth.metrics.t2KeyDerivationMs,
@@ -251,6 +260,11 @@ export default function HomePage() {
         parts: result.dns.partCount,
         dnsQueries: result.dns.dnsQueryCount,
       });
+
+      // Launch background batches (1-9)
+      for (let i = 1; i < 10; i++) {
+        fetchFeed(auth.sessionKey, fastest, i).catch(() => {});
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "unexpected error";
       setError(msg);
@@ -269,7 +283,7 @@ export default function HomePage() {
     setRefreshing(true);
     setError(null);
     try {
-      const result = await fetchFeed(sessionKey, "cloudflare");
+      const result = await fetchFeed(sessionKey, "cloudflare", 0);
       setTelemetry(t => ({
         ...t,
         t3: result.dns.t3DnsRttMs,
@@ -278,6 +292,10 @@ export default function HomePage() {
         parts: result.dns.partCount,
         dnsQueries: result.dns.dnsQueryCount,
       }));
+      // Refresh background batches
+      for (let i = 1; i < 10; i++) {
+        fetchFeed(sessionKey, "cloudflare", i).catch(() => {});
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "refresh failed");
     } finally {

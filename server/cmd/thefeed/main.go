@@ -36,8 +36,6 @@ func main() {
 		paddingMin       = flag.Int("padding-min", 12, "Minimum random padding bytes")
 		paddingMax       = flag.Int("padding-max", 56, "Maximum random padding bytes")
 		maxResponseBytes = flag.Int("max-dns-response-bytes", 512, "Max DNS response bytes")
-		stressParts      = flag.Int("stress-multipart-parts", 0, "Force fixed multipart count for lab testing")
-		stressFillBytes  = flag.Int("stress-fill-bytes", 0, "Append filler bytes before compression for stress testing")
 		disableLogs      = flag.Bool("disable-persistent-logs", true, "Disable persistent logs")
 	)
 	flag.Parse()
@@ -54,31 +52,38 @@ func main() {
 	}
 
 	// Pre-compute encrypted chunks and refresh periodically.
-	chunkCache := &chunkCache{}
+	chunkCache := &batchCache{batches: make(map[int][]string)}
 	refreshChunks := func() {
-		items, err := feedService.Latest(context.Background(), 100)
+		all, err := feedService.Latest(context.Background(), 100)
 		if err != nil {
-			items = []feed.Item{{
+			all = []feed.Item{{
 				Source: "system",
 				Text:   "feed temporarily unavailable",
 				Time:   time.Now().UTC().Format(time.RFC3339),
 			}}
 		}
-		payloadJSON, _ := json.Marshal(items)
-		if *stressFillBytes > 0 {
-			payloadJSON = append(payloadJSON, []byte(strings.Repeat("Z", *stressFillBytes))...)
+
+		// Split 100 items into 10 batches of 10
+		newBatches := make(map[int][]string)
+		batchSize := 10
+		for i := 0; i < len(all); i += batchSize {
+			end := i + batchSize
+			if end > len(all) {
+				end = len(all)
+			}
+			batchItems := all[i:end]
+			payloadJSON, _ := json.Marshal(batchItems)
+			
+			deflated := deflatePayload(payloadJSON)
+			encrypted, err := encryptAESGCM(masterKey, deflated)
+			if err != nil {
+				continue
+			}
+			encoded := base64.RawURLEncoding.EncodeToString(encrypted)
+			chunks := splitFixed(encoded, maxTXTChunkLen)
+			newBatches[i/batchSize] = chunks
 		}
-		deflated := deflatePayload(payloadJSON)
-		encrypted, err := encryptAESGCM(masterKey, deflated)
-		if err != nil {
-			return
-		}
-		encoded := base64.RawURLEncoding.EncodeToString(encrypted)
-		chunks := splitFixed(encoded, maxTXTChunkLen)
-		if *stressParts > 1 {
-			chunks = splitForTargetParts(encoded, *stressParts)
-		}
-		chunkCache.set(chunks)
+		chunkCache.set(newBatches)
 	}
 	refreshChunks()
 	go func() {
@@ -117,27 +122,27 @@ func main() {
 	}
 }
 
-type chunkCache struct {
-	mu     sync.RWMutex
-	chunks []string
+type batchCache struct {
+	mu      sync.RWMutex
+	batches map[int][]string
 }
 
-func (c *chunkCache) set(chunks []string) {
+func (c *batchCache) set(batches map[int][]string) {
 	c.mu.Lock()
-	c.chunks = chunks
+	c.batches = batches
 	c.mu.Unlock()
 }
 
-func (c *chunkCache) get() []string {
+func (c *batchCache) get(batchIdx int) []string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.chunks
+	return c.batches[batchIdx]
 }
 
 func buildTXTResponse(
 	query []byte,
 	domain string,
-	cache *chunkCache,
+	cache *batchCache,
 	padMin,
 	padMax,
 	maxBytes int,
@@ -167,16 +172,18 @@ func buildTXTResponse(
 	if !strings.HasSuffix(normalized, domain) {
 		return nil, false
 	}
+	
+	batchIdx := parseBatchIndex(normalized)
 	partIndex := parsePartIndex(normalized, domain)
 
-	chunks := cache.get()
+	chunks := cache.get(batchIdx)
 	if len(chunks) == 0 {
 		return nil, false
 	}
 	if partIndex < 0 || partIndex >= len(chunks) {
 		return nil, false
 	}
-	partHeader := "c:" + intToString(partIndex+1) + "/" + intToString(len(chunks)) + ":"
+	partHeader := "b:" + intToString(batchIdx) + ":c:" + intToString(partIndex+1) + "/" + intToString(len(chunks)) + ":"
 
 	txt, ok := buildTXTWithinCap(partHeader, chunks[partIndex], padMin, padMax, maxBytes, len(query))
 	if !ok {
@@ -225,6 +232,29 @@ func buildTXTWithinCap(partHeader, chunk string, padMin, padMax, maxBytes, query
 		paddingLen--
 	}
 	return "", false
+}
+
+func parseBatchIndex(qname string) int {
+	labels := strings.Split(qname, ".")
+	for _, label := range labels {
+		if strings.HasPrefix(label, "b") && len(label) > 1 {
+			val := label[1:]
+			n := 0
+			found := false
+			for i := 0; i < len(val); i++ {
+				if val[i] >= '0' && val[i] <= '9' {
+					n = n*10 + int(val[i]-'0')
+					found = true
+				} else {
+					break
+				}
+			}
+			if found {
+				return n
+			}
+		}
+	}
+	return 0
 }
 
 func parsePartIndex(qname, domain string) int {

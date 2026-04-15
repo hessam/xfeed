@@ -57,7 +57,8 @@ export async function probeResolvers(domain: string): Promise<DNSProbeResult[]> 
 
 export async function fetchMultipartCiphertext(
   domain: string,
-  preferred: ResolverName
+  preferred: ResolverName,
+  batchIdx: number = 0
 ): Promise<DNSFetchResult> {
   const maxFetchAttempts = 3;
   let lastError: Error | unknown;
@@ -66,7 +67,7 @@ export async function fetchMultipartCiphertext(
   for (let attempt = 0; attempt < maxFetchAttempts; attempt++) {
     try {
       domain = cleanName(domain);
-      const qname = `p1.msg.${domain}`;
+      const qname = `b${batchIdx}.p1.msg.${domain}`;
       const t3Start = performance.now();
       let dnsQueryCount = 0;
       const firstScatter = await fetchTXTScatter(preferred, qname);
@@ -81,7 +82,7 @@ export async function fetchMultipartCiphertext(
       const parts: string[] = new Array(firstParsed.total).fill("");
       parts[firstParsed.part - 1] = firstParsed.payload;
       for (let i = 2; i <= firstParsed.total; i++) {
-        const partQname = `p${i}.msg.${domain}`;
+        const partQname = `b${batchIdx}.p${i}.msg.${domain}`;
         const scatter = await fetchTXTScatter(preferred, partQname);
         dnsQueryCount += scatter.attempted;
         totalDnsQueries += scatter.attempted;
@@ -158,7 +159,7 @@ async function fetchTXTViaBridge(qname: string): Promise<string> {
 }
 
 function parseChunkHeader(txt: string): { part: number; total: number; payload: string } | null {
-  const m = txt.match(/^c:(\d+)\/(\d+):([A-Za-z0-9\-_]+)\./);
+  const m = txt.match(/b:\d+:c:(\d+)\/(\d+):([A-Za-z0-9\-_]+)\./);
   if (!m) return null;
   return {
     part: Number(m[1]),
