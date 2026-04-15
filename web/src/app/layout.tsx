@@ -2,13 +2,17 @@ import "./globals.css";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "TheFeed",
-  description: "DNS-based feed reference client"
+  title: "Xfeed — Encrypted Feed Reader",
+  description: "Censorship-resistant encrypted feed reader powered by DNS tunneling",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
+      <head>
+        <meta name="theme-color" content="#0a0a0f" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+      </head>
       <body>{children}</body>
     </html>
   );
