@@ -1,14 +1,13 @@
 services:
   slipgate:
     build:
-      context: ..
-      dockerfile: deploy/slipgate/Dockerfile
+      context: anon-slipgate
     container_name: thefeed-slipgate
     restart: unless-stopped
-    command:
-      - "--listen=:53"
-      - "--domain=${THEFEED_DOMAIN}"
-      - "--upstream=thefeed:5300"
+    environment:
+      - THEFEED_DOMAIN=${THEFEED_DOMAIN}
+    volumes:
+      - slipgate_keys:/keys
     ports:
       - "${SLIPGATE_BIND_IP:-0.0.0.0}:${SLIPGATE_HOST_PORT:-53}:53/udp"
     depends_on:
@@ -118,3 +117,4 @@ networks:
 volumes:
   authd_data:
   feeddb_data:
+  slipgate_keys:
