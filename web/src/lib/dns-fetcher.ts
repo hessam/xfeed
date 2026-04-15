@@ -57,39 +57,58 @@ export async function fetchMultipartCiphertext(
   domain: string,
   preferred: ResolverName
 ): Promise<DNSFetchResult> {
-  domain = cleanName(domain);
-  const qname = `p1.msg.${domain}`;
-  const t3Start = performance.now();
-  let dnsQueryCount = 0;
-  const firstScatter = await fetchTXTScatter(preferred, qname);
-  dnsQueryCount += firstScatter.attempted;
-  const first = firstScatter.txt;
-  const firstParsed = parseChunkHeader(first);
-  if (!firstParsed) {
-    throw new Error("invalid TXT chunk header");
-  }
+  const maxFetchAttempts = 3;
+  let lastError: Error | unknown;
+  let totalDnsQueries = 0;
 
-  const parts: string[] = new Array(firstParsed.total).fill("");
-  parts[firstParsed.part - 1] = firstParsed.payload;
-  for (let i = 2; i <= firstParsed.total; i++) {
-    const partQname = `p${i}.msg.${domain}`;
-    const scatter = await fetchTXTScatter(preferred, partQname);
-    dnsQueryCount += scatter.attempted;
-    const txt = scatter.txt;
-    const parsed = parseChunkHeader(txt);
-    if (!parsed || parsed.part !== i || parsed.total !== firstParsed.total) {
-      throw new Error(`invalid chunk ${i}/${firstParsed.total}`);
+  for (let attempt = 0; attempt < maxFetchAttempts; attempt++) {
+    try {
+      domain = cleanName(domain);
+      const qname = `p1.msg.${domain}`;
+      const t3Start = performance.now();
+      let dnsQueryCount = 0;
+      const firstScatter = await fetchTXTScatter(preferred, qname);
+      dnsQueryCount += firstScatter.attempted;
+      totalDnsQueries += firstScatter.attempted;
+      const first = firstScatter.txt;
+      const firstParsed = parseChunkHeader(first);
+      if (!firstParsed) {
+        throw new Error("invalid TXT chunk header");
+      }
+
+      const parts: string[] = new Array(firstParsed.total).fill("");
+      parts[firstParsed.part - 1] = firstParsed.payload;
+      for (let i = 2; i <= firstParsed.total; i++) {
+        const partQname = `p${i}.msg.${domain}`;
+        const scatter = await fetchTXTScatter(preferred, partQname);
+        dnsQueryCount += scatter.attempted;
+        totalDnsQueries += scatter.attempted;
+        const txt = scatter.txt;
+        const parsed = parseChunkHeader(txt);
+        if (!parsed || parsed.part !== i || parsed.total !== firstParsed.total) {
+          throw new Error(`invalid chunk ${i}/${firstParsed.total}`);
+        }
+        parts[i - 1] = parsed.payload;
+      }
+
+      return {
+        ciphertextB64: parts.join(""),
+        partCount: firstParsed.total,
+        t3DnsRttMs: Math.round(performance.now() - t3Start),
+        resolverUsed: preferred,
+        dnsQueryCount: totalDnsQueries,
+      };
+    } catch (e) {
+      lastError = e;
+      if (e instanceof Error && e.message.includes("invalid chunk")) {
+        // Cache might have rotated on the server mid-fetch, delay and retry
+        await new Promise(r => setTimeout(r, 1000));
+        continue;
+      }
+      throw e;
     }
-    parts[i - 1] = parsed.payload;
   }
-
-  return {
-    ciphertextB64: parts.join(""),
-    partCount: firstParsed.total,
-    t3DnsRttMs: Math.round(performance.now() - t3Start),
-    resolverUsed: preferred,
-    dnsQueryCount,
-  };
+  throw lastError;
 }
 
 async function fetchTXT(resolver: ResolverName, qname: string): Promise<string> {

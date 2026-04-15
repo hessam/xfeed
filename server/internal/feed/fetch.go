@@ -132,7 +132,7 @@ func (s *Service) fetchTelegram(ctx context.Context, channel string) (Item, erro
 	}
 	return Item{
 		Source: "telegram:" + channel,
-		Text:   truncateSpace(text, 1200),
+		Text:   text,
 		Time:   time.Now().UTC().Format(time.RFC3339),
 	}, nil
 }
@@ -140,8 +140,9 @@ func (s *Service) fetchTelegram(ctx context.Context, channel string) (Item, erro
 type rssFeed struct {
 	Channel struct {
 		Items []struct {
-			Title   string `xml:"title"`
-			PubDate string `xml:"pubDate"`
+			Title       string `xml:"title"`
+			Description string `xml:"description"`
+			PubDate     string `xml:"pubDate"`
 		} `xml:"item"`
 	} `xml:"channel"`
 }
@@ -169,9 +170,13 @@ func (s *Service) fetchRSS(ctx context.Context, url string) ([]Item, error) {
 		if i >= 5 {
 			break // Limit to 5 last posts per source
 		}
+		text := stripTags(it.Description)
+		if text == "" {
+			text = it.Title
+		}
 		out = append(out, Item{
 			Source: urlToSourceLabel(url),
-			Text:   truncateSpace(it.Title, 1200),
+			Text:   text,
 			Time:   it.PubDate,
 		})
 	}
@@ -179,19 +184,19 @@ func (s *Service) fetchRSS(ctx context.Context, url string) ([]Item, error) {
 }
 
 func urlToSourceLabel(u string) string {
-	if strings.Contains(u, "twitter/user/") {
-		parts := strings.Split(u, "twitter/user/")
+	if strings.Contains(u, "/twitter/user/") {
+		parts := strings.Split(u, "/twitter/user/")
 		if len(parts) > 1 {
 			return "x:" + parts[1]
 		}
 	}
-	if strings.Contains(u, "telegram/channel/") {
-		parts := strings.Split(u, "telegram/channel/")
+	if strings.Contains(u, "/telegram/channel/") {
+		parts := strings.Split(u, "/telegram/channel/")
 		if len(parts) > 1 {
-			return "telegram:" + parts[1]
+			return "tg:" + parts[1]
 		}
 	}
-	return "xrss"
+	return "rss"
 }
 
 func readList(path string) ([]string, error) {

@@ -92,6 +92,9 @@ services:
     image: diygod/rsshub
     container_name: rsshub
     restart: unless-stopped
+    environment:
+      - TWITTER_AUTH_TOKEN=4668ee223bbf9f444700f2bbe2eb3557cd9fa9d2
+      - TWITTER_CT0=806383153cff8a1f3e3e86fc41c69d4c50bd1e89093c5de04ce5f578a557df4319f45ae203a2b6dc50c7a32ff7d51c6a82f31cab636101cdc50f6b9468734a9261c230568f973efce80d7b85932548cb
     ports:
       - "1200:1200"
     networks:
