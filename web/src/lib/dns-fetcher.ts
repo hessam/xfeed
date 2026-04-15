@@ -110,11 +110,22 @@ async function fetchTXT(resolver: ResolverName, qname: string): Promise<string> 
 }
 
 async function fetchTXTScatter(_preferred: ResolverName, qname: string): Promise<{ txt: string; attempted: number }> {
-  // Always try Google first (Cloudflare cannot reach authoritative NS reliably).
   const order: ResolverName[] = ["google", "cloudflare"];
-  const jobs = order.map((r) => fetchTXT(r, qname));
-  const txt = await Promise.any(jobs);
-  return { txt, attempted: jobs.length };
+  const maxRetries = 3;
+  let totalAttempted = 0;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const jobs = order.map((r) => fetchTXT(r, qname));
+      totalAttempted += jobs.length;
+      const txt = await Promise.any(jobs);
+      return { txt, attempted: totalAttempted };
+    } catch {
+      if (attempt < maxRetries - 1) {
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+  }
+  throw new Error(`DNS lookup failed after ${maxRetries} retries for ${qname}`);
 }
 
 async function fetchTXTViaBridge(qname: string): Promise<string> {
