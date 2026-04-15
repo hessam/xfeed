@@ -124,6 +124,17 @@ ON CONFLICT(source) DO UPDATE SET last_seen=excluded.last_seen`, source, lastSee
 	return err
 }
 
+// Prune removes posts older than the specified duration (relative to current time).
+func (s *Store) Prune(maxAge time.Duration) (int64, error) {
+	cutoff := time.Now().UTC().Add(-maxAge).Format(time.RFC3339)
+	res, err := s.db.Exec(`DELETE FROM posts WHERE fetched_at < ?`, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
 func hashPost(source, text string) string {
 	h := sha256.Sum256([]byte(source + "\x00" + text))
 	return fmt.Sprintf("%x", h)

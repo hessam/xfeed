@@ -79,6 +79,9 @@ func (s *Service) refreshCache() {
 		}()
 	}
 	wg.Wait()
+	if n, err := s.st.Prune(7 * 24 * time.Hour); err == nil && n > 0 {
+		log.Printf("Pruned %d old posts from database", n)
+	}
 }
 
 func (s *Service) ingestSource(ctx context.Context, src string) {
