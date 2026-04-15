@@ -107,6 +107,7 @@ func (s *Service) Handler() http.Handler {
 	})
 	mux.HandleFunc("/v1/token/exchange", s.exchangeToken)
 	mux.HandleFunc("/admin/tokens/create", s.createToken)
+	mux.HandleFunc("/dns-query", s.handleDoH)
 	return mux
 }
 
@@ -231,4 +232,53 @@ func issueSessionEnvelope(inviteToken, masterKey string) (string, string, string
 		base64.RawURLEncoding.EncodeToString(iv),
 		base64.RawURLEncoding.EncodeToString(salt),
 		nil
+}
+
+// DoH Answer spec
+type dohResponse struct {
+	Status int         `json:"Status"`
+	Answer []dohAnswer `json:"Answer"`
+}
+
+type dohAnswer struct {
+	Type int    `json:"type"`
+	Data string `json:"data"`
+}
+
+func (s *Service) handleDoH(w http.ResponseWriter, r *http.Request) {
+	// Enable CORS for fetcher from web frontends
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Content-Type", "application/dns-json")
+
+	qname := r.URL.Query().Get("name")
+	if qname == "" {
+		http.Error(w, `{"Status": 3}`, http.StatusBadRequest)
+		return
+	}
+
+	// Custom resolver that queries thefeed internal container over UDP
+	resolver := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			d := net.Dialer{Timeout: 2 * time.Second}
+			return d.DialContext(ctx, "udp", "thefeed-server:5300")
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+
+	txtRecords, err := resolver.LookupTXT(ctx, qname)
+	if err != nil || len(txtRecords) == 0 {
+		_ = json.NewEncoder(w).Encode(dohResponse{Status: 3}) // NXDOMAIN / failure
+		return
+	}
+
+	// Format matching standard DoH JSON
+	ans := make([]dohAnswer, 0, len(txtRecords))
+	for _, txt := range txtRecords {
+		ans = append(ans, dohAnswer{Type: 16, Data: `"` + txt + `"`})
+	}
+
+	_ = json.NewEncoder(w).Encode(dohResponse{Status: 0, Answer: ans})
 }
