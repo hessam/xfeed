@@ -109,8 +109,9 @@ async function fetchTXT(resolver: ResolverName, qname: string): Promise<string> 
   return txt.replace(/^"|"$/g, "");
 }
 
-async function fetchTXTScatter(preferred: ResolverName, qname: string): Promise<{ txt: string; attempted: number }> {
-  const order: ResolverName[] = preferred === "cloudflare" ? ["cloudflare", "google"] : ["google", "cloudflare"];
+async function fetchTXTScatter(_preferred: ResolverName, qname: string): Promise<{ txt: string; attempted: number }> {
+  // Always try Google first (Cloudflare cannot reach authoritative NS reliably).
+  const order: ResolverName[] = ["google", "cloudflare"];
   const jobs = order.map((r) => fetchTXT(r, qname));
   const txt = await Promise.any(jobs);
   return { txt, attempted: jobs.length };
