@@ -20,6 +20,7 @@
   --x-color: #1d9bf0;
   --tg-color: #26a5e4;
   --rss-color: #f97316;
+  --link-color: #818cf8;
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
@@ -368,10 +369,19 @@ html, body {
 
 .post-body {
   font-size: 15px;
-  line-height: 1.65;
-  color: var(--text-primary);
-  word-wrap: break-word;
   overflow-wrap: break-word;
+}
+
+.text-link {
+  color: var(--link-color);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+  font-weight: 500;
+}
+
+.text-link:hover {
+  text-decoration: underline;
+  color: var(--accent-blue);
 }
 
 .post-body.rtl {

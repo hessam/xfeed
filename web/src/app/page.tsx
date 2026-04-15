@@ -49,6 +49,27 @@ function formatTimeAgo(timeStr: string): string {
   }
 }
 
+function renderTextWithLinks(text: string) {
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const parts = text.split(urlRegex);
+  return parts.map((part, i) => {
+    if (part.match(urlRegex)) {
+      return (
+        <a 
+          key={i} 
+          href={part} 
+          target="_blank" 
+          rel="noopener noreferrer" 
+          className="text-link"
+        >
+          {part}
+        </a>
+      );
+    }
+    return part;
+  });
+}
+
 function groupByDate(items: FeedItem[]): { label: string; items: FeedItem[] }[] {
   const groups: Record<string, FeedItem[]> = {};
   const now = new Date();
@@ -448,7 +469,7 @@ export default function HomePage() {
                         <span className="post-time">{formatTimeAgo(item.time)}</span>
                       </div>
                       <div className={`post-body ${isRtl ? "rtl" : "ltr"}`}>
-                        {item.text}
+                        {renderTextWithLinks(item.text)}
                       </div>
                     </article>
                   );
