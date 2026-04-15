@@ -98,9 +98,16 @@ func (s *Service) fetchAll(ctx context.Context, limit int) []Item {
 		if len(out) >= limit {
 			break
 		}
-		item, err := s.fetchRSS(ctx, rss)
-		if err == nil && item.Text != "" {
-			out = append(out, item)
+		items, err := s.fetchRSS(ctx, rss)
+		if err == nil {
+			for _, item := range items {
+				if len(out) >= limit {
+					break
+				}
+				if item.Text != "" {
+					out = append(out, item)
+				}
+			}
 		}
 	}
 	return out
@@ -139,29 +146,52 @@ type rssFeed struct {
 	} `xml:"channel"`
 }
 
-func (s *Service) fetchRSS(ctx context.Context, url string) (Item, error) {
+func (s *Service) fetchRSS(ctx context.Context, url string) ([]Item, error) {
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return Item{}, err
+		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return Item{}, fmt.Errorf("rss status %d", resp.StatusCode)
+		return nil, fmt.Errorf("rss status %d", resp.StatusCode)
 	}
 	var feed rssFeed
 	if err := xml.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&feed); err != nil {
-		return Item{}, err
+		return nil, err
 	}
 	if len(feed.Channel.Items) == 0 {
-		return Item{}, errors.New("rss empty")
+		return nil, errors.New("rss empty")
 	}
-	it := feed.Channel.Items[0]
-	return Item{
-		Source: "xrss",
-		Text:   truncateSpace(it.Title, 1200),
-		Time:   it.PubDate,
-	}, nil
+
+	var out []Item
+	for i, it := range feed.Channel.Items {
+		if i >= 5 {
+			break // Limit to 5 last posts per source
+		}
+		out = append(out, Item{
+			Source: urlToSourceLabel(url),
+			Text:   truncateSpace(it.Title, 1200),
+			Time:   it.PubDate,
+		})
+	}
+	return out, nil
+}
+
+func urlToSourceLabel(u string) string {
+	if strings.Contains(u, "twitter/user/") {
+		parts := strings.Split(u, "twitter/user/")
+		if len(parts) > 1 {
+			return "x:" + parts[1]
+		}
+	}
+	if strings.Contains(u, "telegram/channel/") {
+		parts := strings.Split(u, "telegram/channel/")
+		if len(parts) > 1 {
+			return "telegram:" + parts[1]
+		}
+	}
+	return "xrss"
 }
 
 func readList(path string) ([]string, error) {

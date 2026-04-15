@@ -55,7 +55,7 @@ func main() {
 	// Pre-compute encrypted chunks and refresh periodically.
 	chunkCache := &chunkCache{}
 	refreshChunks := func() {
-		items, err := feedService.Latest(context.Background(), 6)
+		items, err := feedService.Latest(context.Background(), 30)
 		if err != nil {
 			items = []feed.Item{{
 				Source: "system",
