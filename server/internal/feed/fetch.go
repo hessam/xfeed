@@ -10,6 +10,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -23,6 +24,9 @@ type Service struct {
 	client      *http.Client
 	channels    []string
 	nitterFeeds []string
+
+	mu    sync.RWMutex
+	cache []Item
 }
 
 func NewService(channelsFile, nitterFile string) (*Service, error) {
@@ -34,19 +38,53 @@ func NewService(channelsFile, nitterFile string) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Service{
+	s := &Service{
 		client:      &http.Client{Timeout: 6 * time.Second},
 		channels:    channels,
 		nitterFeeds: nitter,
-	}, nil
+	}
+	// Populate cache immediately at startup.
+	s.refreshCache()
+	// Background refresh every 60 seconds.
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			s.refreshCache()
+		}
+	}()
+	return s, nil
 }
 
-func (s *Service) Latest(ctx context.Context, limit int) ([]Item, error) {
+func (s *Service) refreshCache() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	items := s.fetchAll(ctx, 6)
+	if len(items) > 0 {
+		s.mu.Lock()
+		s.cache = items
+		s.mu.Unlock()
+	}
+}
+
+func (s *Service) Latest(_ context.Context, limit int) ([]Item, error) {
 	if limit < 1 {
 		limit = 6
 	}
-	out := make([]Item, 0, limit)
+	s.mu.RLock()
+	cached := s.cache
+	s.mu.RUnlock()
+	if len(cached) == 0 {
+		return nil, errors.New("no feed items available")
+	}
+	if len(cached) > limit {
+		cached = cached[:limit]
+	}
+	return cached, nil
+}
 
+func (s *Service) fetchAll(ctx context.Context, limit int) []Item {
+	out := make([]Item, 0, limit)
 	for _, ch := range s.channels {
 		if len(out) >= limit {
 			break
@@ -65,10 +103,7 @@ func (s *Service) Latest(ctx context.Context, limit int) ([]Item, error) {
 			out = append(out, item)
 		}
 	}
-	if len(out) == 0 {
-		return nil, errors.New("no feed items available")
-	}
-	return out, nil
+	return out
 }
 
 func (s *Service) fetchTelegram(ctx context.Context, channel string) (Item, error) {
